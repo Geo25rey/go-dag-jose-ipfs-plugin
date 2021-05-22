@@ -1,0 +1,39 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "Install plugin to IPFS directory",
+            "command": "echo Finished installing IPFS plugin",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Build IPFS plugin as shared library", "Mark plugin as executable", "Copy IPFS plugin to plugin directory"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "type": "shell",
+            "label": "Build IPFS plugin as shared library",
+            "command": "go build -buildmode=plugin -asmflags=all=-trimpath=\"${env:GOPATH}\" -gcflags=all=-trimpath=\"${env:GOPATH}\" -o build/plugin.so ./main/"
+        },
+        {
+            "type": "shell",
+            "label": "Copy IPFS plugin to plugin directory",
+            "command": "cp",
+            "args": [
+                "${workspaceFolder}/build/plugin.so",
+                "~/.ipfs/plugins"
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "Mark plugin as executable",
+            "command": "chmod",
+            "args": [
+                "a+x",
+                "${workspaceFolder}/build/plugin.so"
+            ]
+        }
+    ]
+}
