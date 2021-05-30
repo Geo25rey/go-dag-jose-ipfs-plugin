@@ -3,7 +3,6 @@ package dagJoseIpfsPlugin
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 
 	"github.com/Geo25rey/go-dag-jose/dagjose"
@@ -14,8 +13,10 @@ import (
 	ipld "github.com/ipfs/go-ipld-format"
 	legacy "github.com/ipfs/go-ipld-legacy"
 	prime "github.com/ipld/go-ipld-prime"
+	"github.com/ipld/go-ipld-prime/codec/cbor"
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
-	jsonCodec "github.com/ipld/go-ipld-prime/codec/json"
+	ipldJson "github.com/ipld/go-ipld-prime/codec/json"
+	"github.com/ipld/go-ipld-prime/codec/raw"
 	mh "github.com/multiformats/go-multihash"
 
 	"bytes"
@@ -113,10 +114,15 @@ func printNode(node prime.Node) error {
 func decoder(block blocks.Block) (result ipld.Node, err error) {
 	nodeBuilder := dagjose.NewBuilder()
 	buf := bytes.NewBuffer(block.RawData())
-	err = dagcbor.Decode(nodeBuilder, buf)
+	err = cbor.Decode(nodeBuilder, buf)
 	if err != nil {
-		fmt.Println("dagjose: Failed to decode:", err)
-		return
+		nodeBuilder = dagjose.NewBuilder()
+		buf = bytes.NewBuffer(block.RawData())
+		err2 := dagcbor.Decode(nodeBuilder, buf)
+		if err2 != nil {
+			fmt.Printf("dagjose: Failed to decode as CBOR and DAG-CBOR: %v & %v", err, err2)
+			return
+		}
 	}
 
 	primeNode := nodeBuilder.Build()
@@ -168,30 +174,22 @@ func parseJOSE(jsonStr []byte) (result prime.Node, err error) {
 	return
 }
 
-func noopDecode(na prime.NodeAssembler, r io.Reader) error {
-	return nil
-}
+type InputDecoder prime.Decoder
 
-func encoder(r io.Reader, mhType uint64, mhLen int, decoder prime.Decoder) (result []ipld.Node, err error) {
+func encoder(r io.Reader, mhType uint64, mhLen int, inputDecoder InputDecoder) (result []ipld.Node, err error) {
 	// ignore mhLen=-1 since values are nosensical
 	if mhType == math.MaxUint64 {
 		mhType = mh.SHA2_256
 	}
 
-	inBuf, err := ioutil.ReadAll(r)
-	if err == io.EOF {
-		inBuf = make([]byte, 0)
-	} else if err != nil {
-		fmt.Println("dagjose: Failed to encode:", err)
-		return
-	}
-
-	fmt.Println("dagjose: debug input:", string(inBuf))
-	primeNode, err := parseJOSE(inBuf)
+	nodeBuilder := dagjose.NewBuilder()
+	err = inputDecoder(nodeBuilder, r)
 	if err != nil {
 		fmt.Println("dagjose: Failed to encode:", err)
 		return
 	}
+
+	primeNode := nodeBuilder.Build()
 	err = printNode(primeNode)
 	if err != nil {
 		fmt.Println(err)
@@ -230,15 +228,19 @@ func encoder(r io.Reader, mhType uint64, mhLen int, decoder prime.Decoder) (resu
 }
 
 func encoderBuilder(inputEncoding string) coredag.DagParser {
+	var inputDecoder InputDecoder
 	switch inputEncoding {
+	case "cbor":
+		inputDecoder = cbor.Decode
+	case "json":
+		inputDecoder = ipldJson.Decode
 	case "raw":
-		return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
-			return encoder(r, mhType, mhLen, jsonCodec.Decode)
-		}
+		inputDecoder = raw.Decode
 	default:
-		return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
-			return encoder(r, mhType, mhLen, noopDecode)
-		}
+		inputDecoder = nil
+	}
+	return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
+		return encoder(r, mhType, mhLen, inputDecoder)
 	}
 }
 
@@ -246,6 +248,7 @@ var (
 	inputEncodings []string = []string{
 		"raw",
 		"json",
+		"cbor",
 	}
 	formats []string = []string{
 		"dag-jose",
