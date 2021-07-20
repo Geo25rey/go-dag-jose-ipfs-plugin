@@ -3,7 +3,7 @@ module github.com/Geo25rey/go-dag-jose-ipfs-plugin
 go 1.15
 
 require (
-	github.com/Geo25rey/go-dag-jose v0.0.8 // change to v0.0.0 for testing
+	github.com/Geo25rey/go-dag-jose v0.0.9 // change to v0.0.0 for testing
 	github.com/ipfs/go-block-format v0.0.3
 	github.com/ipfs/go-cid v0.0.7
 	github.com/ipfs/go-ipfs v0.9.0-rc2
@@ -15,5 +15,5 @@ require (
 )
 
 replace (
-	github.com/Geo25rey/go-dag-jose v0.0.0 => ../go-dag-jose-DNE
+	github.com/Geo25rey/go-dag-jose v0.0.0 => ../go-dag-jose
 )

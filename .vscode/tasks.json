@@ -6,11 +6,27 @@
             "label": "Install plugin to IPFS directory",
             "command": "echo Finished installing IPFS plugin",
             "dependsOrder": "sequence",
-            "dependsOn": ["Build IPFS plugin as shared library", "Mark plugin as executable", "Copy IPFS plugin to plugin directory"],
+            "dependsOn": [
+                "Download the correct version of IPFS",
+                "Ensure build directory exists",
+                "Build IPFS plugin as shared library",
+                "Mark plugin as executable",
+                "Copy IPFS plugin to plugin directory"
+            ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "type": "shell",
+            "label": "Download the correct version of IPFS",
+            "command": "go get github.com/ipfs/go-ipfs/cmd/ipfs@$(go list -f {{.Version}} -m github.com/ipfs/go-ipfs)",
+        },
+        {
+            "type": "shell",
+            "label": "Ensure build directory exists",
+            "command": "mkdir -p build"
         },
         {
             "type": "shell",
@@ -19,20 +35,20 @@
         },
         {
             "type": "shell",
-            "label": "Copy IPFS plugin to plugin directory",
-            "command": "cp",
-            "args": [
-                "${workspaceFolder}/build/plugin.so",
-                "~/.ipfs/plugins"
-            ]
-        },
-        {
-            "type": "shell",
             "label": "Mark plugin as executable",
             "command": "chmod",
             "args": [
                 "a+x",
                 "${workspaceFolder}/build/plugin.so"
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "Copy IPFS plugin to plugin directory",
+            "command": "cp",
+            "args": [
+                "${workspaceFolder}/build/plugin.so",
+                "~/.ipfs/plugins"
             ]
         }
     ]

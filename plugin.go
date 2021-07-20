@@ -1,8 +1,10 @@
 package dagJoseIpfsPlugin
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
 
 	"github.com/Geo25rey/go-dag-jose/dagjose"
@@ -14,9 +16,6 @@ import (
 	legacy "github.com/ipfs/go-ipld-legacy"
 	prime "github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/codec/cbor"
-	"github.com/ipld/go-ipld-prime/codec/dagcbor"
-	ipldJson "github.com/ipld/go-ipld-prime/codec/json"
-	"github.com/ipld/go-ipld-prime/codec/raw"
 	mh "github.com/multiformats/go-multihash"
 
 	"bytes"
@@ -51,6 +50,9 @@ func printNodeIndexed(node prime.Node, depth int) error {
 			}
 			fmt.Printf("\"%v\": ", keyStr)
 			err = printNodeIndexed(value, depth+1)
+			if err != nil {
+				return err
+			}
 			fmt.Println(",")
 		}
 		for i := 0; i < depth; i++ {
@@ -69,6 +71,9 @@ func printNodeIndexed(node prime.Node, depth int) error {
 				fmt.Print("    ")
 			}
 			err = printNodeIndexed(value, depth+1)
+			if err != nil {
+				return err
+			}
 			fmt.Println(",")
 		}
 		for i := 0; i < depth; i++ {
@@ -84,7 +89,8 @@ func printNodeIndexed(node prime.Node, depth int) error {
 		if err != nil {
 			return err
 		}
-		fmt.Print(b)
+		encodedString := base64.RawURLEncoding.EncodeToString(b)
+		fmt.Print('"', encodedString, '"')
 	case prime.Kind_Int:
 		fmt.Print(node.AsInt())
 	case prime.Kind_String:
@@ -116,18 +122,11 @@ func decoder(block blocks.Block) (result ipld.Node, err error) {
 	buf := bytes.NewBuffer(block.RawData())
 	err = cbor.Decode(nodeBuilder, buf)
 	if err != nil {
-		nodeBuilder = dagjose.NewBuilder()
-		buf = bytes.NewBuffer(block.RawData())
-		err2 := dagcbor.Decode(nodeBuilder, buf)
-		if err2 != nil {
-			fmt.Printf("dagjose: Failed to decode as CBOR and DAG-CBOR: %v & %v", err, err2)
-			return
-		}
+		fmt.Printf("dagjose: Failed to decode as DAG-CBOR %v", err)
+		return
 	}
 
 	primeNode := nodeBuilder.Build()
-	printNode(primeNode)
-	fmt.Println("dagjose: Successfully decoded node")
 	err = nil
 	result = &legacy.LegacyNode{
 		Block: block,
@@ -170,18 +169,28 @@ func parseJOSE(jsonStr []byte) (result prime.Node, err error) {
 			return
 		}
 		result = dagJWE.AsJOSE().AsNode()
+	} else {
+		return nil, fmt.Errorf("no payload or ciphertext found")
+	}
+	return
+}
+
+func buildNodeFromJSON(input io.Reader) (result prime.Node, err error) {
+	var jsonStr []byte
+	jsonStr, err = ioutil.ReadAll(input)
+	if err != nil {
+		return
+	}
+	result, err = parseJOSE(jsonStr)
+	if err != nil {
+		return
 	}
 	return
 }
 
 type InputDecoder prime.Decoder
 
-func encoder(r io.Reader, mhType uint64, mhLen int, inputDecoder InputDecoder) (result []ipld.Node, err error) {
-	// ignore mhLen=-1 since values are nosensical
-	if mhType == math.MaxUint64 {
-		mhType = mh.SHA2_256
-	}
-
+func buildNodeFromInputDecoder(r io.Reader, inputDecoder InputDecoder) (result prime.Node, err error) {
 	nodeBuilder := dagjose.NewBuilder()
 	err = inputDecoder(nodeBuilder, r)
 	if err != nil {
@@ -190,18 +199,20 @@ func encoder(r io.Reader, mhType uint64, mhLen int, inputDecoder InputDecoder) (
 	}
 
 	primeNode := nodeBuilder.Build()
-	err = printNode(primeNode)
-	if err != nil {
-		fmt.Println(err)
+	return primeNode, nil
+}
+
+func encoder(primeNode prime.Node, mhType uint64, mhLen int) (result []ipld.Node, err error) {
+	// ignore mhLen=-1 since values are nosensical
+	if mhType == math.MaxUint64 {
+		mhType = mh.SHA2_256
 	}
 
 	outBuf := &bytes.Buffer{}
-	if err = dagcbor.Encode(primeNode, outBuf); err != nil {
+	if err = cbor.Encode(primeNode, outBuf); err != nil {
 		fmt.Println("dagjose: Failed to encode:", err)
 		return
 	}
-	// fmt.Println(outBuf.String())
-	fmt.Println(outBuf.Bytes())
 
 	hash, err := mh.Sum(outBuf.Bytes(), mhType, mhLen)
 	if err != nil {
@@ -216,31 +227,39 @@ func encoder(r io.Reader, mhType uint64, mhLen int, inputDecoder InputDecoder) (
 		return
 	}
 
-	printNode(primeNode)
 	legacyNode := &legacy.LegacyNode{
 		Block: block,
 		Node:  primeNode,
 	}
 	err = nil
 	result = []ipld.Node{legacyNode}
-	fmt.Println("dagjose: Successfully encoded node")
 	return
 }
 
 func encoderBuilder(inputEncoding string) coredag.DagParser {
-	var inputDecoder InputDecoder
 	switch inputEncoding {
 	case "cbor":
-		inputDecoder = cbor.Decode
-	case "json":
-		inputDecoder = ipldJson.Decode
+		fallthrough
 	case "raw":
-		inputDecoder = raw.Decode
+		return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
+			primeNode, err := buildNodeFromInputDecoder(r, cbor.Decode)
+			if err != nil {
+				return nil, err
+			}
+			return encoder(primeNode, mhType, mhLen)
+		}
+	case "json":
+		return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
+			primeNode, err := buildNodeFromJSON(r)
+			if err != nil {
+				return nil, err
+			}
+			return encoder(primeNode, mhType, mhLen)
+		}
 	default:
-		inputDecoder = nil
-	}
-	return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
-		return encoder(r, mhType, mhLen, inputDecoder)
+		return func(r io.Reader, mhType uint64, mhLen int) ([]ipld.Node, error) {
+			return nil, fmt.Errorf("unknown input encoding: %s", inputEncoding)
+		}
 	}
 }
 

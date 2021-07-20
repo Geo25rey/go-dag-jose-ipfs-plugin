@@ -1,0 +1,25 @@
+{
+  "name": "ipfs-http-client-example",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node src/main.mjs"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ceramicnetwork/ipfs-daemon": "^1.0.7",
+    "@stablelib/sha256": "^1.0.1",
+    "blockcodec-to-ipld-format": "^1.0.0",
+    "cids": "^1.1.7",
+    "dag-jose": "^1.0.0",
+    "deep-equal": "^2.0.5",
+    "did-resolver": "^3.1.0",
+    "dids": "^2.4.0",
+    "ipfs-http-client": "^50.1.2",
+    "key-did-provider-ed25519": "^1.1.0",
+    "key-did-resolver": "^1.2.1",
+    "uint8arrays": "^2.1.7"
+  }
+}
